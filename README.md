@@ -1,6 +1,6 @@
 # HCI-PROJECT-CLASSNOTE-AI
 
-# 🎓 ClassNote AI
+#  ClassNote AI
 
 **ClassNote AI** is a real-time AI-powered lecture assistant designed to help students capture, organize, and review lecture content more effectively. It combines audio recording, transcription, note management, and intelligent study tools into one seamless system.
 
