@@ -44,5 +44,5 @@ app.post("/audio", upload.single("audio"), (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
 });
