@@ -35,7 +35,7 @@ app.post("/audio", upload.single("audio"), (req, res) => {
         return res.status(400).json({ error: "No file uploaded" });
     }
 
-    console.log("📁 Saved:", req.file.filename);
+    console.log("Saved:", req.file.filename);
 
     res.json({
         message: "Audio uploaded successfully",
