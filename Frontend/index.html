@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ClassNote AI</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+    <div class="menu" id="menuBtn">☰</div>
+    <h2>ClassNote AI</h2>
+    <button id="darkToggle">🌙</button>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar" id="sidebar">
+
+    <div class="sidebar-header">
+        <h3>Menu</h3>
+        <button id="closeSidebar">✖</button>
+    </div>
+
+    <button onclick="showPage('home')">🏠 Home</button>
+    <button onclick="showPage('record')">🎤 Record</button>
+    <button onclick="showPage('review')">📄 Review</button>
+    <button onclick="showPage('quiz')">🧠 Quiz</button>
+
+</div>
+
+<!-- MAIN -->
+<div class="container">
+
+<!-- HOME -->
+<div class="page" id="home">
+    <h2>Subjects</h2>
+
+    <input id="subjectInput" placeholder="Enter subject">
+    <button onclick="addSubject()">Add</button>
+
+    <ul id="subjectList"></ul>
+</div>
+
+<!-- RECORD -->
+<div class="page hidden" id="record">
+
+    <div class="controls">
+        <img src="assets/record.png" id="startBtn" class="icon-btn record">
+        <img src="  assets/stop.png" id="stopBtn" class="icon-btn">
+    </div>
+
+    <div class="transcription-box">
+        <p id="text">Transcription will appear here...</p>
+    </div>
+
+    <button onclick="saveNote()">Save Note</button>
+    <button onclick="exportPDF()">Export PDF</button>
+
+</div>
+
+<!-- REVIEW -->
+<div class="page hidden" id="review">
+    <h2>Notes</h2>
+    <div id="notesContainer"></div>
+</div>
+
+<!-- QUIZ -->
+<div class="page hidden" id="quiz">
+    <h2>Quiz (Coming Soon)</h2>
+</div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
