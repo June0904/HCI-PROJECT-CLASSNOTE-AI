@@ -1,0 +1,116 @@
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: linear-gradient(135deg, #1f1f1f, #3a3a3a);
+    color: white;
+}
+
+/* TOPBAR */
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+}
+
+/* SIDEBAR */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 240px;
+    height: 100%;
+    backdrop-filter: blur(12px);
+    background: rgba(255,255,255,0.2);
+    color: black;
+    transform: translateX(-100%);
+    transition: 0.3s;
+}
+
+.sidebar.active {
+    transform: translateX(0);
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+#closeSidebar {
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+/* MAIN */
+.container {
+    padding: 20px;
+}
+
+/* BUTTON IMAGES */
+.icon-btn {
+    width: 70px;
+    cursor: pointer;
+    object-fit: contain;
+}
+
+.record {
+    animation: glow 1.5s infinite;
+}
+
+@keyframes glow {
+    0% { box-shadow: 0 0 0px red; }
+    50% { box-shadow: 0 0 20px red; }
+    100% { box-shadow: 0 0 0px red; }
+}
+
+/* TRANSCRIPTION */
+.transcription-box {
+    width: 60%;
+    margin: 20px auto;
+    height: 250px;
+    backdrop-filter: blur(10px);
+    background: rgba(255,255,255,0.1);
+    border-radius: 15px;
+    padding: 10px;
+}
+
+/* SUBJECT LIST */
+#subjectList li {
+    display: flex;
+    justify-content: space-between;
+    background: rgba(255,255,255,0.1);
+    margin: 5px 0;
+    padding: 10px;
+    border-radius: 10px;
+}
+#subjectList li {
+    display: flex;
+    justify-content: space-between;
+    background: rgba(255,255,255,0.1);
+    margin: 5px 0;
+    padding: 10px;
+    border-radius: 10px;
+    transition: 0.2s ease;
+    cursor: pointer;
+}
+
+/* HOVER EFFECT */
+#subjectList li:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.02);
+}
+body.light #subjectList li:hover {
+    background: rgba(0,0,0,0.1);
+}
+
+/* HIDDEN */
+.hidden {
+    display: none;
+}
+
+/* DARK MODE */
+body.light {
+    background: linear-gradient(135deg, #ffffff, #dddddd);
+    color: black;
+}
