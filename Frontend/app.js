@@ -1,4 +1,4 @@
-/// --- INITIALIZATION & GLOBAL VARIABLES ---
+/// INITIALIZATION & GLOBAL VARIABLES
 let subjects = JSON.parse(localStorage.getItem("subjects")) || [];
 let currentSubjectIndex = null;
 let isRecording = false;
@@ -11,7 +11,7 @@ const textBox = document.getElementById("text");
 const statusText = document.getElementById("statusText");
 const startBtn = document.getElementById("startBtn");
 
-// --- SIDEBAR & NAVIGATION ---
+// SIDEBAR & NAVIGATION
 menuBtn.onclick = () => sidebar.classList.add("active");
 closeBtn.onclick = () => sidebar.classList.remove("active");
 
@@ -23,7 +23,7 @@ function showPage(id) {
   if (id === "review") showNotes();
 }
 
-// --- THEME SYSTEM (LIGHT/DARK) ---
+// THEME SYSTEM (LIGHT/DARK)
 darkToggle.onclick = () => {
   document.body.classList.toggle("light-mode");
   
@@ -50,7 +50,7 @@ window.onload = () => {
   renderSubjects();
 };
 
-// --- SUBJECT MANAGEMENT ---
+// SUBJECT MANAGEMENT
 function saveToStorage() {
   localStorage.setItem("subjects", JSON.stringify(subjects));
 }
@@ -76,12 +76,12 @@ function renderSubjects() {
 
     li.innerHTML = `
       <div class="subject-row" onclick="selectSubject(${index})">
-        📁 ${sub.name}
+        Subhect: ${sub.name}
       </div>
 
       <div class="subject-actions">
-        <button onclick="event.stopPropagation(); renameSubject(${index})">✏️</button>
-        <button onclick="event.stopPropagation(); deleteSubject(${index})">❌</button>
+        <button onclick="event.stopPropagation(); renameSubject(${index})">Rename</button>
+        <button onclick="event.stopPropagation(); deleteSubject(${index})">Delete</button>
       </div>
     `;
 
@@ -116,7 +116,7 @@ function renameSubject(index) {
   }
 }
 
-// --- SPEECH RECOGNITION (RECORDING) ---
+// SPEECH RECOGNITION (RECORDING)
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (!SpeechRecognition) {
@@ -183,7 +183,7 @@ startBtn.onclick = async () => {
 };
 }
 
-// --- NOTES MANAGEMENT ---
+// NOTES MANAGEMENT
 function saveNote() {
   if (currentSubjectIndex === null) return alert("Select a subject first!");
   if (textBox.innerText === "Your transcription will appear here..." || textBox.innerText === "") {
