@@ -1,82 +1,85 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ClassNote AI</title>
-
     <link rel="stylesheet" href="style.css">
-
-    <!-- FONT -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
-
-    <!-- PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
-
 <body>
 
-<!-- TOP BAR -->
+<!-- TOPBAR -->
 <div class="topbar">
     <div class="menu" id="menuBtn">☰</div>
-
-    <div class="title">
-        <div class="logo"></div>
-        <h2>ClassNote AI</h2>
-    </div>
-
+    <h2>ClassNote AI</h2>
     <button id="darkToggle">🌙</button>
 </div>
 
 <!-- SIDEBAR -->
 <div class="sidebar" id="sidebar">
-    <button onclick="showPage('home')">Home</button>
-    <button onclick="showPage('record')">Record</button>
-    <button onclick="showPage('review')">Review</button>
-    <button onclick="showPage('quiz')">Quiz</button>
+    <div class="sidebar-header">
+        <h3>Menu</h3>
+        <button id="closeSidebar">✖</button>
+    </div>
+    <div class="nav-links">
+        <button onclick="showPage('home')">🏠 Home</button>
+        <button onclick="showPage('record')">🎤 Record</button>
+        <button onclick="showPage('review')">📄 Review</button>
+        <button onclick="showPage('quiz')">🧠 Quiz</button>
+    </div>
 </div>
 
 <!-- MAIN -->
 <div class="container">
-
-<!-- HOME -->
-<div class="page" id="home">
-    <h2>Subjects</h2>
-    <input id="subjectInput" placeholder="Add subject">
-    <button onclick="addSubject()">Add</button>
-
-    <ul id="subjectList"></ul>
-</div>
+    
+    <!-- HOME -->
+    <div class="page" id="home">
+        <h2>Subjects</h2>
+        <div class="input-group">
+            <input id="subjectInput" placeholder="Enter subject name...">
+            <button onclick="addSubject()" class="primary-btn">Add</button>
+        </div>
+        <ul id="subjectList"></ul>
+    </div>
 
 <!-- RECORD -->
-<div class="page hidden" id="record">
+    <div class="page hidden" id="record">
+        <h2 id="currentSubjectTitle">Recording</h2>
+        <div class="controls">
+            <div id="startBtn" class="record-circle">
+                <div class="inner-circle"></div>
+            </div>
+            <p id="statusText">Tap to start recording</p>
+        </div>
 
-    <div class="controls">
-        <img src="assets/record.png" id="startBtn" class="icon-btn record">
-        <img src="assets/stop.png" id="stopBtn" class="icon-btn">
+l
+        <div class="transcription-box">
+            <p id="text">Your transcription will appear here...</p>
+        </div>
+
+        <div class="action-bar">
+            <button onclick="saveNote()" class="save-btn">💾 Save Note</button>
+            <button onclick="exportPDF()" class="pdf-btn">📥 Export PDF</button>
+        </div>
     </div>
-
-    <div class="transcription-box">
-        <p id="text">Transcription will appear here...</p>
-    </div>
-
-    <button onclick="saveNote()">Save Note</button>
-    <button onclick="exportPDF()">Export PDF</button>
-
-</div>
 
 <!-- REVIEW -->
-<div class="page hidden" id="review">
-    <h2>Saved Notes</h2>
-    <div id="notesContainer"></div>
-</div>
+    <div class="page hidden" id="review">
+        <h2>Notes</h2>
+        <div id="notesContainer"></div>
+    </div>
 
 <!-- QUIZ -->
-<div class="page hidden" id="quiz">
-    <h2>Quiz (Coming soon)</h2>
-</div>
-
+    <div class="page hidden" id="quiz">
+        <div class="coming-soon">
+            <h2>🧠 Quiz Mode</h2>
+            <p>AI Quiz generation coming soon!</p>
+        </div>
+    </div>
 </div>
 
 <script src="app.js"></script>
-
 </body>
 </html>
