@@ -1,84 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ClassNote AI</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <title>ClassNote AI</title>
+
+  <link rel="stylesheet" href="style.css" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+  />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-<!-- TOPBAR -->
-<div class="topbar">
-    <div class="menu" id="menuBtn">☰</div>
-    <h2>ClassNote AI</h2>
-    <button id="darkToggle">🌙</button>
-</div>
-
-<!-- SIDEBAR -->
-<div class="sidebar" id="sidebar">
+  <aside class="sidebar collapsed" id="sidebar">
     <div class="sidebar-header">
-        <h3>Menu</h3>
-        <button id="closeSidebar">✖</button>
-    </div>
-    <div class="nav-links">
-        <button onclick="showPage('home')">Home</button>
-        <button onclick="showPage('record')">Record</button>
-        <button onclick="showPage('review')">Review</button>
-        <button onclick="showPage('quiz')">Quiz</button>
-    </div>
-</div>
+      <div class="collapsed-sidebar-top">
+        <div class="brand-logo">CL</div>
+        <button class="header-theme-btn collapsed-theme-btn" data-theme-toggle aria-label="Toggle theme" type="button">
+          <i class="fa-regular fa-moon" data-theme-icon></i>
+        </button>
+        <button class="collapse-btn mini-toggle-btn" id="menuBtn" aria-label="Expand sidebar" type="button">
+          <i class="fa-solid fa-angle-right"></i>
+        </button>
+      </div>
 
-<!-- MAIN -->
-<div class="container">
-    
-    <!-- HOME -->
-    <div class="page" id="home">
-        <h2>Subjects</h2>
-        <div class="input-group">
-            <input id="subjectInput" placeholder="Enter subject name...">
-            <button onclick="addSubject()" class="primary-btn">Add</button>
+      <div class="expanded-sidebar-top">
+        <div class="brand-wrap">
+          <div class="brand-logo">CL</div>
+          <div class="brand-divider"></div>
+          <div class="brand-text">
+            <h3>ClassNote AI</h3>
+            <p>Smart notes</p>
+          </div>
         </div>
-        <ul id="subjectList"></ul>
+
+        <div class="sidebar-tools">
+          <button class="header-theme-btn desktop-theme-btn" data-theme-toggle aria-label="Toggle theme" type="button">
+            <i class="fa-regular fa-moon" data-theme-icon></i>
+          </button>
+          <button class="collapse-btn" id="desktopCollapseBtn" aria-label="Collapse sidebar" type="button">
+            <i class="fa-solid fa-angle-left"></i>
+          </button>
+        </div>
+      </div>
     </div>
 
-<!-- RECORD -->
-    <div class="page hidden" id="record">
-        <h2 id="currentSubjectTitle">Recording</h2>
-        <div class="controls">
-            <div id="startBtn" class="record-circle">
-                <div class="inner-circle"></div>
-            </div>
-            <p id="statusText">Tap to start recording</p>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-page="home" type="button" title="Dashboard">
+        <span class="nav-icon"><i class="fa-solid fa-house"></i></span>
+        <span class="nav-label">Dashboard</span>
+      </button>
+
+      <button class="nav-item" data-page="record" type="button" title="Record">
+        <span class="nav-icon"><i class="fa-solid fa-microphone"></i></span>
+        <span class="nav-label">Record</span>
+      </button>
+
+      <button class="nav-item" data-page="review" type="button" title="Notes">
+        <span class="nav-icon"><i class="fa-regular fa-note-sticky"></i></span>
+        <span class="nav-label">Notes</span>
+      </button>
+
+      <button class="nav-item" data-page="quiz" type="button" title="Quiz">
+        <span class="nav-icon"><i class="fa-regular fa-circle-question"></i></span>
+        <span class="nav-label">Quiz</span>
+      </button>
+    </nav>
+  </aside>
+
+  <header class="mobile-topbar">
+    <div class="mobile-title-wrap">
+      <h2>ClassNote AI</h2>
+    </div>
+
+    <button class="header-theme-btn" id="headerThemeBtn" data-theme-toggle aria-label="Toggle theme" type="button">
+      <i class="fa-regular fa-moon" id="headerThemeIcon" data-theme-icon></i>
+    </button>
+  </header>
+
+  <main class="main-content collapsed" id="mainContent">
+    <section class="page" id="home">
+      <div class="section-card">
+        <div class="section-heading">
+          <h2>Subjects</h2>
+          <p>Create subjects and organize your notes by class.</p>
+        </div>
+
+        <div class="subject-entry-card">
+          <div class="input-group">
+            <input id="subjectInput" type="text" placeholder="Enter subject name..." />
+            <button onclick="addSubject()" class="primary-btn" type="button">
+              <i class="fa-solid fa-plus"></i>
+              <span>Add</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="subjects-panel">
+          <div class="subjects-panel-top">
+            <h3>Your Subjects</h3>
+          </div>
+          <ul id="subjectList"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="page hidden" id="record">
+      <div class="section-card">
+        <div class="section-heading">
+          <h2 id="currentSubjectTitle">Recording</h2>
+          <p>Tap the microphone to begin recording your lecture or class notes.</p>
+        </div>
+
+        <div class="controls" id="recordControls">
+          <button id="startBtn" class="record-circle" type="button" aria-label="Start recording">
+            <div class="inner-circle"></div>
+          </button>
+          <p id="statusText">Tap to start recording</p>
         </div>
 
         <div class="transcription-box">
-            <p id="text">Your transcription will appear here...</p>
+          <p id="text">Your transcription will appear here...</p>
         </div>
 
         <div class="action-bar">
-            <button onclick="saveNote()" class="save-btn">Save Note</button>
-            <button onclick="exportPDF()" class="pdf-btn">Export PDF</button>
-        </div>
-    </div>
+          <button onclick="saveNote()" class="save-btn" type="button">
+            <i class="fa-regular fa-floppy-disk"></i>
+            <span>Save Note</span>
+          </button>
 
-<!-- REVIEW -->
-    <div class="page hidden" id="review">
-        <h2>Notes</h2>
+          <button onclick="exportPDF()" class="pdf-btn" type="button">
+            <i class="fa-regular fa-file-pdf"></i>
+            <span>Export PDF</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="page hidden" id="review">
+      <div class="section-card">
+        <div class="section-heading">
+          <h2>Notes</h2>
+          <p>Review notes for the currently selected subject.</p>
+        </div>
+
         <div id="notesContainer"></div>
-    </div>
+      </div>
+    </section>
 
-<!-- QUIZ -->
-    <div class="page hidden" id="quiz">
+    <section class="page hidden" id="quiz">
+      <div class="section-card">
         <div class="coming-soon">
-            <h2>Quiz Mode</h2>
-            <p>AI Quiz generation coming soon!</p>
+          <h2>Quiz Mode</h2>
+          <p>AI Quiz generation coming soon!</p>
         </div>
-    </div>
-</div>
+      </div>
+    </section>
+  </main>
 
-<script src="app.js"></script>
+  <script src="theme.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
