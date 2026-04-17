@@ -148,7 +148,7 @@ User Audio → Backend Server → OpenAI API → Transcription → Notes Display
 
 ---
 
-## Author
+## Authors
 
 # **Madredano, Ilczar June**
 Student - Information Technology - University of San Agustin
