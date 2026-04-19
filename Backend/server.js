@@ -7,20 +7,51 @@ const path = require("path");
 const app = express();
 const PORT = 3000;
 const audioDirectory = path.join(__dirname, "audio");
+const envFilePath = path.join(__dirname, ".env");
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+
+  const envLines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+
+  for (const line of envLines) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine.startsWith("#")) continue;
+
+    const separatorIndex = trimmedLine.indexOf("=");
+    if (separatorIndex === -1) continue;
+
+    const key = trimmedLine.slice(0, separatorIndex).trim();
+    let value = trimmedLine.slice(separatorIndex + 1).trim();
+
+    if (
+      (value.startsWith("\"") && value.endsWith("\"")) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    if (key && !process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadEnvFile(envFilePath);
 
 fs.mkdirSync(audioDirectory, { recursive: true });
 
 app.use(cors());
 app.use(express.json());
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "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";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 app.post("/ai", async (req, res) => {
   const { mode, subjectName, notes, quizType, questionCount } = req.body;
 
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === "your-openai-api-key-here") {
+  if (!OPENAI_API_KEY) {
     return res.status(500).json({
-      error: "OpenAI API key is not configured. Set OPENAI_API_KEY in Backend/server.js or use an environment variable."
+      error: "OpenAI API key is not configured. Add OPENAI_API_KEY to Backend/.env or set it as an environment variable."
     });
   }
 
