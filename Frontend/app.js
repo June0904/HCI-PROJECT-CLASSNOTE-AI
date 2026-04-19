@@ -1,4 +1,6 @@
 const STORAGE_KEYS = {
+  users: "classnote_users",
+  currentUser: "classnote_user",
   subjects: "classnote_subjects",
   selectedSubjectId: "classnote_selected_subject_id"
 };
@@ -63,10 +65,103 @@ let hasMicrophonePermission = false;
 
 let isLoggedIn = false;
 let currentUser = null;
+let loadingTimerId = null;
+
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
+function getUserStorageSuffix() {
+  if (!currentUser?.email) return null;
+  return encodeURIComponent(normalizeEmail(currentUser.email));
+}
+
+function getSubjectsStorageKey() {
+  const suffix = getUserStorageSuffix();
+  return suffix ? `${STORAGE_KEYS.subjects}_${suffix}` : STORAGE_KEYS.subjects;
+}
+
+function getSelectedSubjectStorageKey() {
+  const suffix = getUserStorageSuffix();
+  return suffix ? `${STORAGE_KEYS.selectedSubjectId}_${suffix}` : STORAGE_KEYS.selectedSubjectId;
+}
+
+function loadStoredUsers() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.users);
+    const users = saved ? JSON.parse(saved) : [];
+    return Array.isArray(users) ? users : [];
+  } catch (error) {
+    console.error("Could not load saved users:", error);
+    return [];
+  }
+}
+
+function saveStoredUsers(users) {
+  localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(users));
+}
+
+function saveCurrentUserSession(user) {
+  currentUser = user;
+  isLoggedIn = Boolean(user);
+
+  if (user) {
+    localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.currentUser);
+  }
+}
+
+function migrateLegacyUserStore() {
+  const users = loadStoredUsers();
+  if (users.length > 0) return;
+
+  try {
+    const legacyUserRaw = localStorage.getItem(STORAGE_KEYS.currentUser);
+    if (!legacyUserRaw) return;
+
+    const legacyUser = JSON.parse(legacyUserRaw);
+    if (!legacyUser?.email || !legacyUser?.password) return;
+
+    saveStoredUsers([{
+      email: normalizeEmail(legacyUser.email),
+      password: legacyUser.password,
+      createdAt: legacyUser.createdAt || new Date().toISOString()
+    }]);
+  } catch (error) {
+    console.error("Could not migrate legacy user store:", error);
+  }
+}
+
+function migrateLegacySubjectStore() {
+  if (!currentUser?.email) return;
+
+  const scopedSubjectsKey = getSubjectsStorageKey();
+  const scopedSelectedSubjectKey = getSelectedSubjectStorageKey();
+  const hasScopedSubjects = localStorage.getItem(scopedSubjectsKey);
+  const legacySubjects = localStorage.getItem(STORAGE_KEYS.subjects);
+
+  if (hasScopedSubjects || !legacySubjects) return;
+
+  localStorage.setItem(scopedSubjectsKey, legacySubjects);
+
+  const legacySelectedSubjectId = localStorage.getItem(STORAGE_KEYS.selectedSubjectId);
+  if (legacySelectedSubjectId) {
+    localStorage.setItem(scopedSelectedSubjectKey, legacySelectedSubjectId);
+  }
+
+  localStorage.removeItem(STORAGE_KEYS.subjects);
+  localStorage.removeItem(STORAGE_KEYS.selectedSubjectId);
+}
 
 function loadSubjects() {
+  if (!currentUser?.email) {
+    subjects = [];
+    return;
+  }
+
   try {
-    const saved = localStorage.getItem(STORAGE_KEYS.subjects);
+    const saved = localStorage.getItem(getSubjectsStorageKey());
     subjects = saved ? JSON.parse(saved) : [];
   } catch (error) {
     console.error("Could not load saved subjects:", error);
@@ -75,21 +170,29 @@ function loadSubjects() {
 }
 
 function saveSubjects() {
-  localStorage.setItem(STORAGE_KEYS.subjects, JSON.stringify(subjects));
+  if (!currentUser?.email) return;
+  localStorage.setItem(getSubjectsStorageKey(), JSON.stringify(subjects));
 }
 
 function loadSelectedSubject() {
-  selectedSubjectId = localStorage.getItem(STORAGE_KEYS.selectedSubjectId);
+  if (!currentUser?.email) {
+    selectedSubjectId = null;
+    return;
+  }
+
+  selectedSubjectId = localStorage.getItem(getSelectedSubjectStorageKey());
 
   if (!selectedSubjectId && subjects.length > 0) {
     selectedSubjectId = subjects[0].id;
-    localStorage.setItem(STORAGE_KEYS.selectedSubjectId, selectedSubjectId);
+    localStorage.setItem(getSelectedSubjectStorageKey(), selectedSubjectId);
   }
 }
 
 function setSelectedSubject(subjectId) {
   selectedSubjectId = subjectId;
-  localStorage.setItem(STORAGE_KEYS.selectedSubjectId, subjectId);
+  if (currentUser?.email) {
+    localStorage.setItem(getSelectedSubjectStorageKey(), subjectId);
+  }
   updateCurrentSubjectHeading();
   renderSubjects();
   renderNotes();
@@ -332,10 +435,13 @@ async function checkBackendHealth() {
 }
 
 function checkAuth() {
-  const user = localStorage.getItem("classnote_user");
+  migrateLegacyUserStore();
+
+  const user = localStorage.getItem(STORAGE_KEYS.currentUser);
   if (user) {
     currentUser = JSON.parse(user);
     isLoggedIn = true;
+    migrateLegacySubjectStore();
     showApp();
   } else {
     showLanding();
@@ -371,7 +477,7 @@ function switchAuthTab(tab) {
 
 function handleAuth(e) {
   e.preventDefault();
-  const email = emailInput.value.trim();
+  const email = normalizeEmail(emailInput.value);
   const password = passwordInput.value;
   const isSignUp = authSubmit.textContent === "Sign Up";
 
@@ -381,27 +487,52 @@ function handleAuth(e) {
   }
 
   if (isSignUp) {
-    // Simple sign up - store user
-    const user = { email, password };
-    localStorage.setItem("classnote_user", JSON.stringify(user));
-    currentUser = user;
-    isLoggedIn = true;
+    const users = loadStoredUsers();
+    const existingUser = users.find((user) => normalizeEmail(user.email) === email);
+    if (existingUser) {
+      showAuthError("An account with this email already exists.");
+      return;
+    }
+
+    const user = { email, password, createdAt: new Date().toISOString() };
+    users.push(user);
+    saveStoredUsers(users);
+    saveCurrentUserSession(user);
+    migrateLegacySubjectStore();
+    loadSubjects();
+    loadSelectedSubject();
+    updateCurrentSubjectHeading();
+    renderSubjects();
+    renderNotes();
+    populateQuizSubjectSelect();
     showApp();
   } else {
-    // Sign in - check credentials
-    const storedUser = localStorage.getItem("classnote_user");
-    if (storedUser) {
-      const user = JSON.parse(storedUser);
-      if (user.email === email && user.password === password) {
-        currentUser = user;
-        isLoggedIn = true;
-        showApp();
-      } else {
-        showAuthError("Incorrect email or password.");
-      }
-    } else {
+    const users = loadStoredUsers();
+    if (users.length === 0) {
       showAuthError("No account found. Please sign up first.");
+      return;
     }
+
+    const user = users.find((storedUser) => normalizeEmail(storedUser.email) === email);
+    if (!user) {
+      showAuthError("No account found with that email.");
+      return;
+    }
+
+    if (user.password !== password) {
+      showAuthError("Incorrect email or password.");
+      return;
+    }
+
+    saveCurrentUserSession(user);
+    migrateLegacySubjectStore();
+    loadSubjects();
+    loadSelectedSubject();
+    updateCurrentSubjectHeading();
+    renderSubjects();
+    renderNotes();
+    populateQuizSubjectSelect();
+    showApp();
   }
 }
 
@@ -410,13 +541,24 @@ function showAuthError(message) {
   authError.style.display = "block";
 }
 
-function showLoading(text = "Loading...", progress = 0) {
+function showLoading(text = "Loading...", progress = 0, options = {}) {
+  const { delay = 0 } = options;
+  clearTimeout(loadingTimerId);
   loadingText.textContent = text;
   loadingProgress.style.width = `${progress}%`;
+
+  if (delay > 0) {
+    loadingTimerId = window.setTimeout(() => {
+      loadingOverlay.style.display = "flex";
+    }, delay);
+    return;
+  }
+
   loadingOverlay.style.display = "flex";
 }
 
 function hideLoading() {
+  clearTimeout(loadingTimerId);
   loadingOverlay.style.display = "none";
 }
 
@@ -432,9 +574,14 @@ function closePopup() {
 }
 
 function logout() {
-  localStorage.removeItem("classnote_user");
-  isLoggedIn = false;
-  currentUser = null;
+  saveCurrentUserSession(null);
+  subjects = [];
+  selectedSubjectId = null;
+  selectedNoteId = null;
+  updateAIResult(aiSummaryResult, "");
+  updateAIResult(quizResultContainer, "");
+  setAIStatus(summaryStatus, "", false);
+  setAIStatus(quizStatus, "", false);
   showLanding();
 }
 
@@ -448,6 +595,34 @@ function updateAIResult(container, text) {
   if (!container) return;
   container.textContent = text || "";
   container.style.display = text ? "block" : "none";
+}
+
+function populateQuizSubjectSelect() {
+  if (!quizSubjectSelect) return;
+
+  const availableSubjects = getSubjects();
+  const previousValue = quizSubjectSelect.value;
+
+  if (availableSubjects.length === 0) {
+    quizSubjectSelect.innerHTML = '<option value="">No subjects available</option>';
+    quizSubjectSelect.value = "";
+    return;
+  }
+
+  quizSubjectSelect.innerHTML = [
+    '<option value="">Select Subject</option>',
+    ...availableSubjects.map((subject) => (
+      `<option value="${escapeHtml(subject.name)}">${escapeHtml(subject.name)}</option>`
+    ))
+  ].join("");
+
+  if (availableSubjects.some((subject) => subject.name === previousValue)) {
+    quizSubjectSelect.value = previousValue;
+    return;
+  }
+
+  const selectedSubject = getSelectedSubject();
+  quizSubjectSelect.value = selectedSubject?.name || "";
 }
 
 function selectNoteForSummary(subjectId, noteId) {
@@ -481,8 +656,8 @@ async function generateSummary() {
     return;
   }
 
-  showLoading("Generating AI Summary...", 20);
-  setAIStatus(summaryStatus, "", false);
+  showLoading("Generating AI Summary...", 20, { delay: 200 });
+  setAIStatus(summaryStatus, "Generating summary...");
   updateAIResult(aiSummaryResult, "");
 
   try {
@@ -497,7 +672,6 @@ async function generateSummary() {
     setAIStatus(summaryStatus, "Summary generated successfully.");
     updateAIResult(aiSummaryResult, result);
     hideLoading();
-    showPopup("Success", "AI summary generated successfully!");
   } catch (error) {
     hideLoading();
     setAIStatus(summaryStatus, `AI Summary error: ${error.message}`);
@@ -543,8 +717,8 @@ async function generateQuiz() {
     return;
   }
 
-  showLoading("Generating AI Quiz...", 20);
-  setAIStatus(quizStatus, "", false);
+  showLoading("Generating AI Quiz...", 20, { delay: 200 });
+  setAIStatus(quizStatus, "Generating quiz...");
   updateAIResult(quizResultContainer, "");
 
   try {
@@ -561,7 +735,6 @@ async function generateQuiz() {
     setAIStatus(quizStatus, "Quiz generated successfully.");
     renderInteractiveQuiz(result, quizType);
     hideLoading();
-    showPopup("Success", "AI quiz generated successfully!");
   } catch (error) {
     hideLoading();
     setAIStatus(quizStatus, `AI Quiz error: ${error.message}`);
@@ -750,6 +923,38 @@ function createQuizHtml(questions, quizType) {
   return html;
 }
 
+function renderInteractiveQuiz(rawText, quizType) {
+  if (!quizResultContainer) return;
+
+  let questions = [];
+
+  if (quizType === "multiple_choice") {
+    questions = parseMultipleChoiceQuiz(rawText);
+  } else if (quizType === "true_false") {
+    questions = parseTrueFalseQuiz(rawText);
+  } else if (quizType === "identification" || quizType === "essay") {
+    questions = parseIdentificationQuiz(rawText);
+  }
+
+  if (!questions.length) {
+    updateAIResult(quizResultContainer, rawText);
+    setAIStatus(quizStatus, "Quiz generated, but it could not be converted into interactive questions.");
+    return;
+  }
+
+  const quizHtml = `
+    ${createQuizHtml(questions, quizType)}
+    <button class="primary-btn" type="button" onclick="checkQuizAnswers(window.currentQuizQuestions, window.currentQuizType)">
+      Submit Answers
+    </button>
+  `;
+
+  window.currentQuizQuestions = questions;
+  window.currentQuizType = quizType;
+  quizResultContainer.innerHTML = quizHtml;
+  quizResultContainer.style.display = "block";
+}
+
 function checkQuizAnswers(questions, quizType) {
   let correctCount = 0;
   let totalQuestions = questions.length;
@@ -853,22 +1058,17 @@ function showPage(pageId) {
     recognition.stop();
   }
 
-  showLoading("Switching page...", 50);
-  setTimeout(() => {
-    pages.forEach((page) => {
-      page.classList.toggle("hidden", page.id !== pageId);
-    });
+  pages.forEach((page) => {
+    page.classList.toggle("hidden", page.id !== pageId);
+  });
 
-    pageButtons.forEach((button) => {
-      button.classList.toggle("active", button.dataset.page === pageId);
-    });
+  pageButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.page === pageId);
+  });
 
-    if (pageId === "quiz") {
-      populateQuizSubjectSelect();
-    }
-
-    hideLoading();
-  }, 300);
+  if (pageId === "quiz") {
+    populateQuizSubjectSelect();
+  }
 }
 
 function expandSidebar() {
@@ -930,6 +1130,7 @@ function addSubject() {
   editingSubjectDraft = "";
   renderSubjects();
   renderNotes();
+  populateQuizSubjectSelect();
 }
 
 function openSubject(subjectId) {
@@ -976,6 +1177,7 @@ function saveRenamedSubject(subjectId) {
   renderSubjects();
   renderNotes();
   updateCurrentSubjectHeading();
+  populateQuizSubjectSelect();
 }
 
 function cancelRenameSubject() {
@@ -1011,9 +1213,9 @@ function deleteSubject(subjectId) {
   if (selectedSubjectId === subjectId) {
     selectedSubjectId = subjects.length ? subjects[0].id : null;
     if (selectedSubjectId) {
-      localStorage.setItem(STORAGE_KEYS.selectedSubjectId, selectedSubjectId);
+      localStorage.setItem(getSelectedSubjectStorageKey(), selectedSubjectId);
     } else {
-      localStorage.removeItem(STORAGE_KEYS.selectedSubjectId);
+      localStorage.removeItem(getSelectedSubjectStorageKey());
     }
   }
 
@@ -1022,6 +1224,7 @@ function deleteSubject(subjectId) {
   updateCurrentSubjectHeading();
   renderSubjects();
   renderNotes();
+  populateQuizSubjectSelect();
 }
 
 function saveNote() {
@@ -1048,6 +1251,7 @@ function saveNote() {
   saveSubjects();
   renderSubjects();
   renderNotes();
+  populateQuizSubjectSelect();
 
   transcriptText = "";
   textOutput.textContent = TRANSCRIPT_PLACEHOLDER;
@@ -1064,6 +1268,7 @@ function deleteNote(subjectId, noteId) {
   saveSubjects();
   renderSubjects();
   renderNotes();
+  populateQuizSubjectSelect();
 }
 
 function exportPDF() {
@@ -1259,6 +1464,7 @@ function init() {
   updateCurrentSubjectHeading();
   renderSubjects();
   renderNotes();
+  populateQuizSubjectSelect();
   initializeSpeechRecognition();
   applyResponsiveSidebarState();
   showPage("home");
