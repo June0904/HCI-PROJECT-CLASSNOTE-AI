@@ -30,9 +30,24 @@ const quizStatus = document.getElementById("quizStatus");
 const quizResultContainer = document.getElementById("quizResultContainer");
 const quizSubjectSelect = document.getElementById("quizSubjectSelect");
 
-const BACKEND_BASE_URL = "http://localhost:3000";
+function resolveBackendBaseUrl() {
+  const configuredUrl = localStorage.getItem("classnote_backend_url")?.trim();
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/+$/, "");
+  }
+
+  const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (isLocalhost) {
+    return "http://localhost:3000";
+  }
+
+  return window.location.origin.replace(/\/+$/, "");
+}
+
+const BACKEND_BASE_URL = resolveBackendBaseUrl();
 const BACKEND_API_URL = `${BACKEND_BASE_URL}/ai`;
 const BACKEND_HEALTH_URL = `${BACKEND_BASE_URL}/health`;
+const BACKEND_TRANSCRIBE_URL = `${BACKEND_BASE_URL}/transcribe`;
 
 const loadingOverlay = document.getElementById("loadingOverlay");
 const loadingText = document.getElementById("loadingText");
@@ -62,6 +77,11 @@ let transcriptText = "";
 let editingSubjectId = null;
 let editingSubjectDraft = "";
 let hasMicrophonePermission = false;
+let recordingStream = null;
+let mediaRecorder = null;
+let recordedAudioChunks = [];
+let speechRecognitionSupported = false;
+let isRecognitionActive = false;
 
 let isLoggedIn = false;
 let currentUser = null;
@@ -378,15 +398,66 @@ function buildNotesForAI() {
   return currentText;
 }
 
+function getBackendUnavailableMessage(action) {
+  const githubPagesHint = window.location.hostname.endsWith("github.io")
+    ? " GitHub Pages cannot run the Node/Express backend by itself, so deploy the Backend separately and set localStorage.classnote_backend_url to that backend URL."
+    : "";
+
+  return `Unable to reach the backend while trying to ${action}. Make sure the backend is running at ${BACKEND_BASE_URL}.${githubPagesHint}`;
+}
+
+function isNetworkError(error) {
+  return error?.name === "TypeError" || error?.name === "AbortError";
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function wakeBackend() {
+  try {
+    await fetchWithTimeout(BACKEND_HEALTH_URL, { method: "GET" }, 12000);
+  } catch (error) {
+    console.warn("Backend wake-up failed:", error);
+  }
+}
+
 async function postAIRequest(body) {
   try {
-    const response = await fetch(BACKEND_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+    let response;
+
+    try {
+      response = await fetchWithTimeout(BACKEND_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      }, 45000);
+    } catch (error) {
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+
+      await wakeBackend();
+      response = await fetchWithTimeout(BACKEND_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      }, 45000);
+    }
 
     const rawText = await response.text();
     if (!rawText) {
@@ -410,18 +481,22 @@ async function postAIRequest(body) {
 
     return data.result;
   } catch (error) {
+    if (isNetworkError(error)) {
+      throw new Error(getBackendUnavailableMessage("reach the AI service"));
+    }
+
     throw new Error(error.message || "Unable to connect to AI service.");
   }
 }
 
 async function checkBackendHealth() {
   try {
-    const response = await fetch(BACKEND_HEALTH_URL, {
+    const response = await fetchWithTimeout(BACKEND_HEALTH_URL, {
       method: "GET",
       headers: {
         "Content-Type": "application/json"
       }
-    });
+    }, 15000);
 
     if (!response.ok) {
       throw new Error(`Backend health check failed with status ${response.status}`);
@@ -430,7 +505,10 @@ async function checkBackendHealth() {
     const data = await response.json();
     showPopup("Backend Health", `Backend is healthy.\nStatus: ${data.ok ? "OK" : "Not OK"}`);
   } catch (error) {
-    showPopup("Backend Health Error", error.message, true);
+    const message = isNetworkError(error)
+      ? getBackendUnavailableMessage("check backend health")
+      : error.message;
+    showPopup("Backend Health Error", message, true);
   }
 }
 
@@ -745,11 +823,48 @@ async function generateQuiz() {
 
 function parseMultipleChoiceQuiz(text) {
   const questions = [];
-  const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+  const normalizedText = text
+    .replace(/\r/g, "")
+    .replace(/([^\n])\s+([A-D][\.\):]\s+)/g, "$1\n$2");
+  const lines = normalizedText.split('\n').map(line => line.trim()).filter(line => line);
 
   let currentQuestion = null;
   let currentOptions = [];
   let inAnswerKey = false;
+
+  function extractChoiceOptions(value) {
+    const options = [];
+    const optionPattern = /(?:^|[\s-])([A-D])[\.\):]\s*(.+?)(?=(?:\s+[A-D][\.\):]\s)|$)/gi;
+    let match;
+
+    while ((match = optionPattern.exec(value)) !== null) {
+      options.push({
+        letter: match[1].toUpperCase(),
+        text: match[2].trim()
+      });
+    }
+
+    return options;
+  }
+
+  function parseMultipleChoiceAnswer(value) {
+    const patterns = [
+      /^(\d+)[\.\):\-]?\s*(?:answer|correct answer|option)?\s*[:\-]?\s*([A-D])\b/i,
+      /^(\d+)[\.\):\-]?\s*\(([A-D])\)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = value.match(pattern);
+      if (match) {
+        return {
+          questionNumber: Number.parseInt(match[1], 10),
+          answerLetter: match[2].toUpperCase()
+        };
+      }
+    }
+
+    return null;
+  }
 
   for (const line of lines) {
     // Check for answer key section
@@ -759,33 +874,39 @@ function parseMultipleChoiceQuiz(text) {
     }
 
     if (inAnswerKey) {
-      // Parse answer key (e.g., "1. A", "2. B")
-      const answerMatch = line.match(/^(\d+)\.\s*([A-D])/i);
-      if (answerMatch && questions[answerMatch[1] - 1]) {
-        questions[answerMatch[1] - 1].correctAnswer = answerMatch[2].toUpperCase();
+      const parsedAnswer = parseMultipleChoiceAnswer(line);
+      if (parsedAnswer && questions[parsedAnswer.questionNumber - 1]) {
+        questions[parsedAnswer.questionNumber - 1].correctAnswer = parsedAnswer.answerLetter;
       }
       continue;
     }
 
     // Check for question number
-    const questionMatch = line.match(/^(\d+)\.\s*(.+)/);
+    const questionMatch = line.match(/^(\d+)[\.\)]\s*(.+)/);
     if (questionMatch) {
       if (currentQuestion) {
         currentQuestion.options = currentOptions;
         questions.push(currentQuestion);
       }
+
+      const questionBody = questionMatch[2];
+      const inlineOptions = extractChoiceOptions(questionBody);
+      const cleanedQuestion = inlineOptions.length > 0
+        ? questionBody.split(/\s+[A-D][\.\):]\s+/)[0].trim()
+        : questionBody;
+
       currentQuestion = {
         number: parseInt(questionMatch[1]),
-        question: questionMatch[2],
+        question: cleanedQuestion,
         options: [],
         correctAnswer: null
       };
-      currentOptions = [];
+      currentOptions = inlineOptions;
       continue;
     }
 
-    // Check for options (A. B. C. D.)
-    const optionMatch = line.match(/^([A-D])\.\s*(.+)/i);
+    // Check for options (A. B. C. D., A), A:, - A.)
+    const optionMatch = line.match(/^(?:[-*]\s*)?([A-D])[\.\):]\s*(.+)/i);
     if (optionMatch && currentQuestion) {
       currentOptions.push({
         letter: optionMatch[1].toUpperCase(),
@@ -802,6 +923,72 @@ function parseMultipleChoiceQuiz(text) {
   }
 
   return questions;
+}
+
+function normalizeMultipleChoiceQuestions(questions) {
+  return questions.map((question) => {
+    const originalOptions = Array.isArray(question.options) ? question.options : [];
+    const dedupedOptions = [];
+    const seenOptionTexts = new Set();
+    const correctAnswerLetter = question.correctAnswer?.toUpperCase() || null;
+
+    originalOptions.forEach((option) => {
+      const cleanedText = option.text?.replace(/\s+/g, " ").trim();
+      if (!cleanedText) return;
+
+      const normalizedTextKey = cleanedText.toLowerCase();
+      if (seenOptionTexts.has(normalizedTextKey)) return;
+
+      seenOptionTexts.add(normalizedTextKey);
+      dedupedOptions.push({
+        ...option,
+        text: cleanedText,
+        originalLetter: option.letter?.toUpperCase() || null,
+        isOriginallyCorrect: option.letter?.toUpperCase() === correctAnswerLetter
+      });
+    });
+
+    const fillerOptions = [
+      "Review the notes for the correct answer.",
+      "This option was unavailable from the quiz response.",
+      "Choose the answer that best matches the lesson.",
+      "Recheck the topic details in your saved notes."
+    ];
+
+    for (const fillerText of fillerOptions) {
+      if (dedupedOptions.length >= 4) break;
+      if (seenOptionTexts.has(fillerText.toLowerCase())) continue;
+
+      seenOptionTexts.add(fillerText.toLowerCase());
+      dedupedOptions.push({
+        text: fillerText,
+        originalLetter: null,
+        isOriginallyCorrect: false
+      });
+    }
+
+    const trimmedOptions = dedupedOptions.slice(0, 4);
+    const shuffledOptions = [...trimmedOptions];
+
+    for (let index = shuffledOptions.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [shuffledOptions[index], shuffledOptions[randomIndex]] = [shuffledOptions[randomIndex], shuffledOptions[index]];
+    }
+
+    const normalizedOptions = shuffledOptions.map((option, index) => ({
+      ...option,
+      letter: String.fromCharCode(65 + index)
+    }));
+
+    const matchedCorrectOption = normalizedOptions.find((option) => option.isOriginallyCorrect);
+
+    return {
+      ...question,
+      options: normalizedOptions,
+      correctAnswer: matchedCorrectOption ? matchedCorrectOption.letter : null,
+      correctAnswerText: matchedCorrectOption ? matchedCorrectOption.text : null
+    };
+  });
 }
 
 function parseTrueFalseQuiz(text) {
@@ -930,6 +1117,7 @@ function renderInteractiveQuiz(rawText, quizType) {
 
   if (quizType === "multiple_choice") {
     questions = parseMultipleChoiceQuiz(rawText);
+    questions = normalizeMultipleChoiceQuestions(questions);
   } else if (quizType === "true_false") {
     questions = parseTrueFalseQuiz(rawText);
   } else if (quizType === "identification" || quizType === "essay") {
@@ -939,6 +1127,12 @@ function renderInteractiveQuiz(rawText, quizType) {
   if (!questions.length) {
     updateAIResult(quizResultContainer, rawText);
     setAIStatus(quizStatus, "Quiz generated, but it could not be converted into interactive questions.");
+    return;
+  }
+
+  if (quizType === "multiple_choice" && questions.every((question) => question.options.length === 0)) {
+    updateAIResult(quizResultContainer, rawText);
+    setAIStatus(quizStatus, "Quiz generated, but the answer choices could not be parsed into interactive options.");
     return;
   }
 
@@ -984,6 +1178,21 @@ function checkQuizAnswers(questions, quizType) {
       isCorrect = null;
     }
 
+    const correctMultipleChoiceOption = quizType === 'multiple_choice'
+      ? question.options?.find((option) => option.letter === question.correctAnswer)
+      : null;
+    const correctAnswerDisplay = quizType === 'multiple_choice'
+      ? (correctMultipleChoiceOption
+        ? `${correctMultipleChoiceOption.letter}. ${correctMultipleChoiceOption.text}`
+        : (question.correctAnswerText || question.correctAnswer || 'Not available'))
+      : (question.correctAnswer || 'Not available');
+    const userAnswerDisplay = quizType === 'multiple_choice' && userAnswer
+      ? (() => {
+        const selectedChoice = question.options?.find((option) => option.letter === userAnswer);
+        return selectedChoice ? `${selectedChoice.letter}. ${selectedChoice.text}` : userAnswer;
+      })()
+      : (userAnswer || 'No answer');
+
     // Update question styling
     if (isCorrect === true) {
       questionDiv.classList.add('correct');
@@ -997,8 +1206,8 @@ function checkQuizAnswers(questions, quizType) {
     if (quizType === 'multiple_choice' || quizType === 'true_false') {
       feedbackHtml = `
         <div class="question-feedback">
-          <strong>Your answer:</strong> ${userAnswer || 'No answer'}
-          <br><strong>Correct answer:</strong> ${question.correctAnswer || 'Not available'}
+          <strong>Your answer:</strong> ${userAnswerDisplay}
+          <br><strong>Correct answer:</strong> ${correctAnswerDisplay}
           <br><span class="result-${isCorrect ? 'correct' : 'incorrect'}">${isCorrect ? '✓ Correct' : '✗ Incorrect'}</span>
         </div>
       `;
@@ -1299,24 +1508,24 @@ function exportPDF() {
 }
 
 async function ensureMicrophoneAccess() {
-  if (hasMicrophonePermission) {
-    return true;
-  }
-
   if (!navigator.mediaDevices?.getUserMedia) {
     statusText.textContent = "This browser cannot access the microphone.";
-    return false;
+    return null;
   }
 
   try {
+    if (recordingStream) {
+      return recordingStream;
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
     hasMicrophonePermission = true;
-    return true;
+    recordingStream = stream;
+    return stream;
   } catch (error) {
     console.error("Microphone access failed:", error);
     statusText.textContent = "Microphone access was blocked. Please allow microphone permission.";
-    return false;
+    return null;
   }
 }
 
@@ -1324,23 +1533,19 @@ function initializeSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
-    statusText.textContent = "Speech recognition is not supported on this device/browser.";
-    if (startBtn) {
-      startBtn.disabled = true;
-      startBtn.style.opacity = "0.6";
-      startBtn.style.cursor = "not-allowed";
-    }
+    speechRecognitionSupported = false;
+    statusText.textContent = "Browser speech recognition is unavailable. Audio will be transcribed after recording.";
     return;
   }
 
+  speechRecognitionSupported = true;
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.lang = "en-US";
 
   recognition.onstart = () => {
-    isRecording = true;
-    recordControls.classList.add("recording");
+    isRecognitionActive = true;
     statusText.textContent = "Listening...";
   };
 
@@ -1371,35 +1576,153 @@ function initializeSpeechRecognition() {
     if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
       statusText.textContent = "Speech recognition permission was denied.";
     } else if (errorCode === "network") {
-      statusText.textContent = "Speech recognition network error. Try Chrome or Edge over http://localhost.";
+      statusText.textContent = "Speech recognition had a network issue. The app will fall back to backend transcription when recording stops.";
     } else if (errorCode === "audio-capture") {
       statusText.textContent = "No microphone was found for recording.";
     } else {
       statusText.textContent = "Recording error. Please try again.";
     }
 
-    isRecording = false;
-    recordControls.classList.remove("recording");
-    hideLoading();
+    isRecognitionActive = false;
   };
 
   recognition.onend = () => {
-    isRecording = false;
-    recordControls.classList.remove("recording");
-    hideLoading();
-
-    if (!statusText.textContent || statusText.textContent === "Listening...") {
+    isRecognitionActive = false;
+    if (!isRecording && (!statusText.textContent || statusText.textContent === "Listening...")) {
       statusText.textContent = "Tap to start recording";
     }
   };
 }
 
-async function toggleRecording() {
-  if (!recognition) {
-    statusText.textContent = "Speech recognition is not available in this browser.";
+function stopRecordingStream() {
+  if (!recordingStream) return;
+  recordingStream.getTracks().forEach((track) => track.stop());
+  recordingStream = null;
+}
+
+function startMediaRecorder(stream) {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("This browser does not support audio recording.");
+  }
+
+  recordedAudioChunks = [];
+
+  const recorderOptions = {};
+  if (MediaRecorder.isTypeSupported?.("audio/webm;codecs=opus")) {
+    recorderOptions.mimeType = "audio/webm;codecs=opus";
+  } else if (MediaRecorder.isTypeSupported?.("audio/webm")) {
+    recorderOptions.mimeType = "audio/webm";
+  }
+
+  mediaRecorder = Object.keys(recorderOptions).length > 0
+    ? new MediaRecorder(stream, recorderOptions)
+    : new MediaRecorder(stream);
+
+  mediaRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data?.size) {
+      recordedAudioChunks.push(event.data);
+    }
+  });
+
+  mediaRecorder.start(250);
+}
+
+function stopMediaRecorder() {
+  return new Promise((resolve) => {
+    if (!mediaRecorder || mediaRecorder.state === "inactive") {
+      resolve(null);
+      return;
+    }
+
+    const activeRecorder = mediaRecorder;
+    activeRecorder.addEventListener("stop", () => {
+      const mimeType = activeRecorder.mimeType || "audio/webm";
+      const audioBlob = recordedAudioChunks.length
+        ? new Blob(recordedAudioChunks, { type: mimeType })
+        : null;
+      mediaRecorder = null;
+      recordedAudioChunks = [];
+      stopRecordingStream();
+      resolve(audioBlob);
+    }, { once: true });
+
+    activeRecorder.stop();
+  });
+}
+
+async function transcribeRecordedAudio(audioBlob) {
+  if (!audioBlob) {
+    throw new Error("No audio was captured to transcribe.");
+  }
+
+  const formData = new FormData();
+  formData.append("audio", audioBlob, `recording-${Date.now()}.webm`);
+
+  let response;
+
+  try {
+    response = await fetchWithTimeout(BACKEND_TRANSCRIBE_URL, {
+      method: "POST",
+      body: formData
+    }, 70000);
+  } catch (error) {
+    if (!isNetworkError(error)) {
+      throw error;
+    }
+
+    await wakeBackend();
+    response = await fetchWithTimeout(BACKEND_TRANSCRIBE_URL, {
+      method: "POST",
+      body: formData
+    }, 70000);
+  }
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Audio transcription failed.");
+  }
+
+  return (data.text || "").trim();
+}
+
+async function finalizeRecordingSession() {
+  showLoading("Finalizing recording...", 30, { delay: 150 });
+
+  if (speechRecognitionSupported && isRecognitionActive) {
+    try {
+      recognition.stop();
+    } catch (error) {
+      console.warn("Speech recognition stop failed:", error);
+    }
+  }
+
+  const audioBlob = await stopMediaRecorder();
+  isRecording = false;
+  recordControls.classList.remove("recording");
+
+  if (transcriptText.trim()) {
+    hideLoading();
+    statusText.textContent = "Transcription ready.";
     return;
   }
 
+  statusText.textContent = "Transcribing audio...";
+
+  try {
+    const transcribedText = await transcribeRecordedAudio(audioBlob);
+    transcriptText = transcribedText;
+    textOutput.textContent = transcribedText || TRANSCRIPT_PLACEHOLDER;
+    statusText.textContent = transcribedText
+      ? "Transcription ready."
+      : "Recording finished, but no speech was detected.";
+  } catch (error) {
+    statusText.textContent = error.message;
+  } finally {
+    hideLoading();
+  }
+}
+
+async function toggleRecording() {
   const selectedSubject = getSelectedSubject();
   if (!selectedSubject) {
     alert("Please create or select a subject first.");
@@ -1407,28 +1730,38 @@ async function toggleRecording() {
   }
 
   if (isRecording) {
-    showLoading("Finalizing recording...", 30);
-    recognition.stop();
+    await finalizeRecordingSession();
     return;
   }
 
-  const hasAccess = await ensureMicrophoneAccess();
-  if (!hasAccess) return;
+  const stream = await ensureMicrophoneAccess();
+  if (!stream) return;
 
   transcriptText = "";
   textOutput.textContent = TRANSCRIPT_PLACEHOLDER;
-  statusText.textContent = "Starting recording...";
+  statusText.textContent = speechRecognitionSupported ? "Starting recording..." : "Recording...";
 
   try {
-    recognition.start();
-  } catch (error) {
-    console.error("Recognition could not start:", error);
+    startMediaRecorder(stream);
+    isRecording = true;
+    recordControls.classList.add("recording");
 
-    if (!window.isSecureContext && location.protocol !== "http:" && location.hostname !== "localhost") {
-      statusText.textContent = "Open the app from http://localhost so the browser can start recording.";
+    if (speechRecognitionSupported && recognition) {
+      try {
+        recognition.start();
+      } catch (recognitionError) {
+        console.warn("Speech recognition could not start:", recognitionError);
+        statusText.textContent = "Recording... audio will be transcribed after you stop.";
+      }
     } else {
-      statusText.textContent = "Recording could not start. Try again in Chrome or Edge.";
+      statusText.textContent = "Recording... audio will be transcribed after you stop.";
     }
+  } catch (error) {
+    console.error("Recording could not start:", error);
+    isRecording = false;
+    recordControls.classList.remove("recording");
+    stopRecordingStream();
+    statusText.textContent = "Recording could not start. Please check microphone permissions and browser support.";
   }
 }
 
