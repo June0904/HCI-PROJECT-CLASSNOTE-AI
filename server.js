@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const audioDirectory = path.join(__dirname, "audio");
 const envFilePath = path.join(__dirname, ".env");
 const MAX_AUDIO_UPLOAD_SIZE = 25 * 1024 * 1024;
